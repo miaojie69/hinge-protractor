@@ -10,7 +10,7 @@ slider instead of a sensor.
 | Path | Status |
 | --- | --- |
 | Demo mode (slider input) | Built and run in iOS Simulator; model unit tests pass |
-| Hardware hinge path | **Not verified.** Compiled out by default — see below |
+| Hardware hinge path | **Not verified.** Needs the iOS 27 SDK; compiled out by default |
 | Physical measurement accuracy | **Not measured.** No hardware has been tested |
 
 Nothing in this repository has been run on a folding device. Do not read
@@ -32,24 +32,29 @@ Nothing in this repository has been run on a folding device. Do not read
 
 ## The hardware path
 
-An earlier revision guarded the hinge listener with `#if compiler(>=6.3)` plus
-`if #available(iOS 27.0, *)`. That is not a valid test: a compiler version does
+The API this app is designed around is real. Apple's tech talk
+[Leverage multiple displays and scenes on iPhone Duo](https://developer.apple.com/videos/play/tech-talks/111464/)
+documents `onHingeChange`, `context.hinge`, `hinge.status` (closed /
+partiallyOpen / fullyOpen) and `hinge.angle`. It ships in the **iOS 27 SDK**;
+the iPhone Duo simulator arrives with **Xcode 27.1**, in beta from late
+September 2026.
+
+This work was done on Xcode 26.1.1 / iOS 26.1 SDK — one major version earlier.
+That SDK declares none of those symbols (verified by searching its SwiftUI
+module interfaces), and `simctl list devicetypes` offers no folding device.
+So the hardware path cannot be compiled, let alone verified, on this toolchain.
+
+An earlier revision guarded the listener with `#if compiler(>=6.3)` plus
+`if #available(iOS 27.0, *)`. The intent was right, but a compiler version does
 not prove the selected SDK declares a symbol, and runtime availability cannot
-make an older SDK resolve an interface it never had.
+make an older SDK resolve an interface it never had. Every reference now sits
+behind one explicit build flag, `HINGE_API_AVAILABLE`, **off by default**.
 
-Every reference to the hinge API now sits behind one explicit build flag,
-`HINGE_API_AVAILABLE`, which is **off by default**. The iOS 26.1 SDK shipping
-with Xcode 26.1.1 declares no `onHingeChange`, `context.hinge`, `hinge.status`,
-or `hinge.angle` — verified by searching the SwiftUI module interfaces in that
-SDK. The symbols discussed in Apple's
-[iPhone Duo tech talk](https://developer.apple.com/videos/play/tech-talks/111464/)
-are therefore unavailable to build against here.
-
-To try the hardware path on an SDK that does declare it, add
-`HINGE_API_AVAILABLE` to `SWIFT_ACTIVE_COMPILATION_CONDITIONS` for the app
-target — and only after confirming the declaration in that SDK and getting a
-clean build. Turning the flag on does not by itself demonstrate hardware
-support.
+Once Xcode 27.1 is installed, add `HINGE_API_AVAILABLE` to
+`SWIFT_ACTIVE_COMPILATION_CONDITIONS` for the app target to compile the
+hardware path. Turning the flag on does not by itself demonstrate hardware
+support — the coordinate convention and accuracy still need checking against a
+real device.
 
 ## Source states
 
@@ -65,10 +70,11 @@ rejected, so it cannot overwrite sensor data.
 
 ## Requirements
 
-- Xcode 26.1.1 with the iOS 26.1 SDK and an iOS Simulator runtime — enough to
-  build and run demo mode
-- Hardware measurement requires an SDK that actually declares the hinge API,
-  plus a folding device. Neither was available for this work.
+- Demo mode: Xcode 26.1.1 with the iOS 26.1 SDK and an iOS Simulator runtime.
+  Verified working.
+- Hardware path: Xcode 27.1 with the iOS 27 SDK, plus an iPhone Duo (or its
+  simulator) to check the hinge coordinate convention. Not available for this
+  work.
 
 ## Build
 
