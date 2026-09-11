@@ -1,48 +1,54 @@
 # Hinge Protractor
 
-The idea: place the two halves of a folding iPhone against the two sides of an
-angle and read the hinge opening directly. Today this repository ships the
-**demo mode** of that idea — the measurement UI, driven by a simulated angle
-slider instead of a sensor.
+Open an iPhone Duo and the hinge angle is right there, read off an engraved
+scale. Press the two halves against the two sides of an angle and it measures
+that angle instead.
+
+![Demo mode on iPhone 17 simulator](screenshots/01-launch.png)
+
+It is built as an instrument — charcoal, a single champagne accent, thin
+graduated numerals, damped motion, detents every 15° so opening the device
+feels like turning a machined dial. The measuring is real, but the reason to
+open it is that the hinge is the one thing this device has and nothing else
+does.
 
 ## Verification status
 
-| Path | Status |
+| | Status |
 | --- | --- |
-| Demo mode (slider input) | Built and run in iOS Simulator; model unit tests pass |
+| Demo mode (slider input) | Built and run in iOS Simulator; 20 unit tests pass |
 | Hardware hinge path | **Not verified.** Needs the iOS 27 SDK; compiled out by default |
-| Physical measurement accuracy | **Not measured.** No hardware has been tested |
+| iPhone Duo layouts | **Not verified.** Never compiled — see below |
+| Measurement accuracy | **Not measured.** No hardware has been tested |
 
-Nothing in this repository has been run on a folding device. Do not read
-"demo verified" as "hardware works".
+Nothing here has run on a folding device. Do not read "demo verified" as
+"hardware works".
 
-## Features
+## What it does
 
-- Hinge angle displayed in degrees to one decimal place (a display format, not
-  an accuracy claim)
-- Large relative reading (displayed angle − zero point) with the absolute angle
-  always visible alongside
-- Set Zero / Clear Zero; zeroing while frozen uses the frozen reading
-- Freeze/resume — the display holds while input keeps arriving in the background
-- Degrees and radians, applied to both readings
-- Demo slider, two arms, and a sector that follows the absolute opening angle
-- VoiceOver labels on the readings; the decorative sector is hidden from
-  the accessibility tree
+- Hinge angle to one decimal place — a display format, not an accuracy claim
+- Set Zero / Clear Zero for relative measurement; zeroing while locked uses the
+  locked reading
+- Lock / unlock the reading; optional auto-lock once the angle is held still
+  for a second, confirmed by haptic feedback
+- Degrees and radians
+- Haptic detents every 15°
+- Screen stays awake while measuring, sleeps normally once locked
 - No analytics, account, network access, or stored measurements
 
 ## The hardware path
 
-The API this app is designed around is real. Apple's tech talk
+The API this is built around is real. Apple's tech talk
 [Leverage multiple displays and scenes on iPhone Duo](https://developer.apple.com/videos/play/tech-talks/111464/)
 documents `onHingeChange`, `context.hinge`, `hinge.status` (closed /
 partiallyOpen / fullyOpen) and `hinge.angle`. It ships in the **iOS 27 SDK**;
 the iPhone Duo simulator arrives with **Xcode 27.1**, in beta from late
 September 2026.
 
-This work was done on Xcode 26.1.1 / iOS 26.1 SDK — one major version earlier.
-That SDK declares none of those symbols (verified by searching its SwiftUI
-module interfaces), and `simctl list devicetypes` offers no folding device.
-So the hardware path cannot be compiled, let alone verified, on this toolchain.
+This was built on Xcode 26.1.1 / iOS 26.1 — one major version earlier. That SDK
+declares none of those symbols (verified by searching its SwiftUI module
+interfaces) and `simctl list devicetypes` offers no folding device. So the
+hardware path cannot be compiled, let alone verified, here.
 
 An earlier revision guarded the listener with `#if compiler(>=6.3)` plus
 `if #available(iOS 27.0, *)`. The intent was right, but a compiler version does
@@ -50,74 +56,76 @@ not prove the selected SDK declares a symbol, and runtime availability cannot
 make an older SDK resolve an interface it never had. Every reference now sits
 behind one explicit build flag, `DUO_SDK_AVAILABLE`, **off by default**.
 
-Once Xcode 27.1 is installed, add `DUO_SDK_AVAILABLE` to
-`SWIFT_ACTIVE_COMPILATION_CONDITIONS` for the app target to compile the
-hardware path. Turning the flag on does not by itself demonstrate hardware
-support — the coordinate convention and accuracy still need checking against a
-real device.
+With Xcode 27.1 installed, add `DUO_SDK_AVAILABLE` to
+`SWIFT_ACTIVE_COMPILATION_CONDITIONS` for the app target to compile
+`DuoLayout.swift` and the hinge listener. Expect signatures to need fixing on
+that first build.
+
+### Day-one calibration
+
+Whether the hardware reports closed as 0° or 180° is unknown. Rather than
+requiring a rebuild to find out, **反转铰链方向** in the settings sheet flips it
+at runtime. All coordinate conversion stays inside
+`normalizeHardwareDegrees(_:)`; the raw value is kept untouched in
+`lastRawHardwareDegrees` for later calibration work.
 
 ## Designing for the fold
 
-Device geometry, from [Apple's iPhone Duo specs](https://www.apple.com/iphone-duo/specs/):
+Device geometry, from [Apple's specs](https://www.apple.com/iphone-duo/specs/):
 
 | | Inner display | Outer display |
 | --- | --- | --- |
 | Diagonal | 7.6″ | 5.4″ |
 | Pixels | 1878 × 2670 @ 430 ppi | 1398 × 2034 @ 460 ppi |
-| Points (@3x) | ~890 × 626 (landscape when unfolded) | ~466 × 678 |
+| Points (@3x) | ~890 × 626, landscape unfolded | ~466 × 678 |
 
-Unfolded the body is 164.6 × 117.8 × 5.2 mm; folded, 84.1 × 117.8 × 11.3 mm;
-254 g. The fold runs vertically, so the inner display splits into two halves of
-roughly **445 × 626 pt** each.
+Unfolded 164.6 × 117.8 × 5.2 mm; folded 84.1 × 117.8 × 11.3 mm; 254 g. The fold
+runs vertically, so the inner display splits into halves of about **445 × 626 pt**.
 
-This matters more here than in most apps, because **measuring happens while the
-device is partially open** — the inner display is physically bent the whole
-time it is being used. A single centred column would put the large reading
-directly on the crease, split across two planes meeting at an angle.
+Apple defines five postures on the [iPhone Duo
+page](https://www.apple.com.cn/iphone-duo/): 横屏, 竖屏, 闭合, 坐立 and 站立.
+Two of them matter here:
 
-Apple's guidance (["Strike a pose with adaptive layouts on iPhone
-Duo"](https://developer.apple.com/videos/play/tech-talks/111463/) and
-["Leverage multiple displays and
-scenes"](https://developer.apple.com/videos/play/tech-talks/111464/)) is
-explicit that layout must not be driven by the hinge angle — that is for
-interaction effects only. Layout comes from:
+- **坐立** — folded back and set on a desk, lower half flat and upper half
+  upright. This is simultaneously the measuring posture and how the device
+  rests on a table. Apple's convention for it is stated plainly: 控制项就在
+  底面屏幕上 — controls belong on the lower half. The layout follows that.
+- **站立** — standing, which enters StandBy: clock, photos, widgets at an
+  adjustable angle. The natural home for an ambient version of this app.
 
-- `ArrangementView { } secondary: { }` with `.arrangementViewStyle(.split.axes(.horizontal))`
-- `GeometryProxy.reservedRegions(kind: .division)` — the fold is a *division*
-  region, active while bent and zero-width when flat
-- `sceneAccessory` for content on the outer display; new windows are
-  inner-display only
+Note that the fold is **vertical when unfolded wide and horizontal in the sit
+posture**, so the halves are left/right in one case and top/bottom in the
+other. `DuoSplitLayout` reads the division region's shape and swaps
+accordingly rather than assuming one of them.
 
-`DuoLayout.swift` implements this: when an active division region exists, the
-measurement goes on one half and the controls on the other, so neither crosses
-the fold. The controls half repeats the reading in a smaller size, because the
-two halves face different directions while measuring and the user may only be
-able to see one of them. When no fold is active — flat inner display, outer
-display, or any other iPhone — it falls back to the single column.
+Because measuring happens while the device is partially open, the inner display
+is bent the entire time it is in use. Two consequences:
 
-**That file has never been compiled.** It is written against the API names in
-Apple's tech talks, and the signatures should be expected to need fixing on the
-first real build with Xcode 27.1.
+- **Text must not cross the crease.** It would be split across two planes
+  meeting at an angle. The readout stays inside one half, and is repeated
+  smaller on the other, since the halves face different directions.
+- **The instrument face should cross it**, with its vertex on the fold, so the
+  drawing turns about the same axis as the hardware. It is not a 1:1 overlay of
+  the device — that would require looking down the hinge axis, which is
+  impossible while looking at a screen mounted on it.
 
-## Source states
+Layout is driven by `GeometryProxy.reservedRegions(kind: .division)` — the fold
+is a *division* region, active while bent and zero-width when flat — and never
+by the hinge angle, per Apple's
+[adaptive layout guidance](https://developer.apple.com/videos/play/tech-talks/111463/).
+`ArrangementView` is the recommended split container; this screen positions
+against the region directly because one element must deliberately span the fold.
 
-The app distinguishes three situations an earlier version conflated:
-
-- **演示模式** — the hardware path is compiled out; the slider is the only input.
-- **等待硬件信息…** — the hardware path is compiled in but no callback has
-  arrived. This is *not* evidence that the device lacks a hinge.
-- **本机无铰链** — the hardware path explicitly reported no hinge.
-
-While a hardware hinge is reporting, the slider is hidden and demo input is
-rejected, so it cannot overwrite sensor data.
+The reading is also mirrored to the cover display through `sceneAccessory`.
+Which display is visible depends on whether an interior or exterior angle is
+being measured — pressed into a wall corner the cover display faces the wall;
+held around an outside corner the inner display does. The device cannot tell
+those apart, so both show the number rather than guessing.
 
 ## Requirements
 
-- Demo mode: Xcode 26.1.1 with the iOS 26.1 SDK and an iOS Simulator runtime.
-  Verified working.
-- Hardware path: Xcode 27.1 with the iOS 27 SDK, plus an iPhone Duo (or its
-  simulator) to check the hinge coordinate convention. Not available for this
-  work.
+- Demo mode: Xcode 26.1.1, iOS 26.1 SDK, an iOS Simulator runtime. Verified.
+- Hardware: Xcode 27.1, iOS 27 SDK, and an iPhone Duo. Not available for this work.
 
 ## Build
 
@@ -127,35 +135,28 @@ xcodebuild -project HingeProtractor.xcodeproj -scheme HingeProtractor \
   -derivedDataPath build/DerivedData CODE_SIGNING_ALLOWED=NO build
 ```
 
-Or open `HingeProtractor.xcodeproj` in Xcode, pick the `HingeProtractor`
-scheme and a simulator, and Run. Signing is not needed for the simulator; for a
-physical device, select the app target → **Signing & Capabilities** → your team.
+Or open `HingeProtractor.xcodeproj`, pick the `HingeProtractor` scheme and a
+simulator, and Run. Signing is not needed for the simulator.
 
-## Calibration and accuracy
+## Accuracy
 
-**Accuracy is unverified.** No measurement against a reference angle has been
-performed. Any real-world error depends on contact between the device halves
-and the measured surfaces, case thickness, mechanical play in the hinge, and
-where the hinge's own zero sits. The one-decimal display is a formatting
-choice and does not imply that level of precision.
+**Unverified.** No measurement against a reference angle has been performed.
+Real-world error depends on contact between the device halves and the measured
+surfaces, case thickness, mechanical play in the hinge, and where the hinge's
+own zero sits. One decimal place is a formatting choice, not a precision claim.
 
 Set Zero and calibration are different operations:
 
-- **Set Zero** records the current displayed angle as a reference and reports
-  change relative to it. Zeroing at a known 90° corner gives you deviation from
-  that corner — it does not correct the absolute reading to 90°.
+- **Set Zero** records the current displayed angle and reports change relative
+  to it. Zeroing at a known 90° corner gives deviation from that corner — it
+  does not correct the absolute reading to 90°.
 - **Calibration** would mean correcting the absolute angle against a reference.
   This app does not do that.
 
-The raw hardware value is retained separately (`lastRawHardwareDegrees`) so a
-future calibration step has something to work from. All coordinate conversion
-is confined to `normalizeHardwareDegrees(_:)`; if real hardware turns out to
-report fully open as 0°, only that function changes.
-
 ## Status
 
-Early prototype and an open-source demo. Not a calibrated measuring
-instrument; not for safety-critical or precision engineering work.
+Early prototype. Not a calibrated measuring instrument; not for
+safety-critical or precision engineering work.
 
 ## License
 
