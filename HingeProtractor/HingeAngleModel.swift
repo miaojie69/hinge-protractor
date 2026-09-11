@@ -47,7 +47,7 @@ final class HingeAngleModel {
     var unit: Unit = .degrees
 
     init() {
-#if HINGE_API_AVAILABLE
+#if DUO_SDK_AVAILABLE
         sourceState = .awaitingHardware
 #else
         sourceState = .demo

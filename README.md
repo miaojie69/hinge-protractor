@@ -48,13 +48,56 @@ An earlier revision guarded the listener with `#if compiler(>=6.3)` plus
 `if #available(iOS 27.0, *)`. The intent was right, but a compiler version does
 not prove the selected SDK declares a symbol, and runtime availability cannot
 make an older SDK resolve an interface it never had. Every reference now sits
-behind one explicit build flag, `HINGE_API_AVAILABLE`, **off by default**.
+behind one explicit build flag, `DUO_SDK_AVAILABLE`, **off by default**.
 
-Once Xcode 27.1 is installed, add `HINGE_API_AVAILABLE` to
+Once Xcode 27.1 is installed, add `DUO_SDK_AVAILABLE` to
 `SWIFT_ACTIVE_COMPILATION_CONDITIONS` for the app target to compile the
 hardware path. Turning the flag on does not by itself demonstrate hardware
 support — the coordinate convention and accuracy still need checking against a
 real device.
+
+## Designing for the fold
+
+Device geometry, from [Apple's iPhone Duo specs](https://www.apple.com/iphone-duo/specs/):
+
+| | Inner display | Outer display |
+| --- | --- | --- |
+| Diagonal | 7.6″ | 5.4″ |
+| Pixels | 1878 × 2670 @ 430 ppi | 1398 × 2034 @ 460 ppi |
+| Points (@3x) | ~890 × 626 (landscape when unfolded) | ~466 × 678 |
+
+Unfolded the body is 164.6 × 117.8 × 5.2 mm; folded, 84.1 × 117.8 × 11.3 mm;
+254 g. The fold runs vertically, so the inner display splits into two halves of
+roughly **445 × 626 pt** each.
+
+This matters more here than in most apps, because **measuring happens while the
+device is partially open** — the inner display is physically bent the whole
+time it is being used. A single centred column would put the large reading
+directly on the crease, split across two planes meeting at an angle.
+
+Apple's guidance (["Strike a pose with adaptive layouts on iPhone
+Duo"](https://developer.apple.com/videos/play/tech-talks/111463/) and
+["Leverage multiple displays and
+scenes"](https://developer.apple.com/videos/play/tech-talks/111464/)) is
+explicit that layout must not be driven by the hinge angle — that is for
+interaction effects only. Layout comes from:
+
+- `ArrangementView { } secondary: { }` with `.arrangementViewStyle(.split.axes(.horizontal))`
+- `GeometryProxy.reservedRegions(kind: .division)` — the fold is a *division*
+  region, active while bent and zero-width when flat
+- `sceneAccessory` for content on the outer display; new windows are
+  inner-display only
+
+`DuoLayout.swift` implements this: when an active division region exists, the
+measurement goes on one half and the controls on the other, so neither crosses
+the fold. The controls half repeats the reading in a smaller size, because the
+two halves face different directions while measuring and the user may only be
+able to see one of them. When no fold is active — flat inner display, outer
+display, or any other iPhone — it falls back to the single column.
+
+**That file has never been compiled.** It is written against the API names in
+Apple's tech talks, and the signatures should be expected to need fixing on the
+first real build with Xcode 27.1.
 
 ## Source states
 
