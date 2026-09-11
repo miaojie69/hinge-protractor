@@ -1,55 +1,42 @@
 import SwiftUI
 
 struct ContentView: View {
-    @State private var model = MeasurementModel()
-    @State private var hasHinge = false
+    @State private var model = HingeAngleModel()
     @State private var demoAngle = 90.0
 
     var body: some View {
         ZStack {
-            LinearGradient(
-                colors: [Color(red: 0.03, green: 0.04, blue: 0.07), .black],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
-
-            VStack(spacing: 24) {
-                header
-                Spacer(minLength: 8)
-                reading
-                Spacer(minLength: 8)
-                if !hasHinge { demoControl }
-                controls
+            LinearGradient(colors: [Color(red: 0.03, green: 0.04, blue: 0.07), .black], startPoint: .top, endPoint: .bottom)
+                .ignoresSafeArea()
+            ScrollView {
+                VStack(spacing: 20) {
+                    header
+                    reading
+                    HingeArcView(degrees: model.shownDegrees).frame(height: 190)
+                    if !model.hasHardwareHinge { demoControl }
+                    controls
+                }
+                .padding(24)
+                .frame(maxWidth: 700)
+                .frame(maxWidth: .infinity)
             }
-            .padding(24)
         }
         .preferredColorScheme(.dark)
-        .onAppear { model.receive(degrees: demoAngle) }
-        .onHingeChange { _, context in
-            if let hinge = context.hinge {
-                hasHinge = true
-                model.receive(degrees: hinge.angle.degrees)
-            } else {
-                hasHinge = false
-            }
-        }
+        .onAppear { model.receiveDemo(degrees: demoAngle) }
+        .modifier(HingeListener(model: model))
     }
 
     private var header: some View {
         HStack {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("HINGE PROTRACTOR")
-                    .font(.caption.weight(.bold))
-                    .tracking(2)
-                    .foregroundStyle(.secondary)
-                Label(hasHinge ? "Hinge connected" : "Demo mode", systemImage: hasHinge ? "checkmark.circle.fill" : "slider.horizontal.3")
+            VStack(alignment: .leading, spacing: 5) {
+                Text("HINGE PROTRACTOR").font(.caption.weight(.bold)).tracking(2).foregroundStyle(.secondary)
+                Label(model.sourceState.label, systemImage: model.hasHardwareHinge ? "checkmark.circle.fill" : "slider.horizontal.3")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(hasHinge ? .green : .orange)
+                    .foregroundStyle(model.hasHardwareHinge ? .green : .orange)
             }
             Spacer()
             Picker("Unit", selection: $model.unit) {
-                ForEach(MeasurementModel.Unit.allCases) { unit in
+                ForEach(HingeAngleModel.Unit.allCases) { unit in
                     Text(unit == .degrees ? "°" : "rad").tag(unit)
                 }
             }
@@ -59,53 +46,37 @@ struct ContentView: View {
     }
 
     private var reading: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 10) {
             Text(model.formatted(model.relativeDegrees, signed: model.hasZero))
                 .font(.system(size: 72, weight: .light, design: .rounded))
-                .monospacedDigit()
-                .minimumScaleFactor(0.55)
-                .lineLimit(1)
-
+                .monospacedDigit().minimumScaleFactor(0.5).lineLimit(1)
+                .contentTransition(.numericText())
             Text(model.hasZero ? "RELATIVE ANGLE" : "HINGE ANGLE")
-                .font(.caption.weight(.bold))
-                .tracking(2)
-                .foregroundStyle(.secondary)
-
-            if model.hasZero {
-                Text("Absolute  \(model.formatted(model.shownDegrees))")
-                    .font(.headline.monospacedDigit())
-                    .foregroundStyle(.secondary)
-            }
-
+                .font(.caption.weight(.bold)).tracking(2).foregroundStyle(.secondary)
+            Text("绝对角  \(model.formatted(model.shownDegrees))")
+                .font(.headline.monospacedDigit()).foregroundStyle(.secondary)
             if model.isFrozen {
-                Label("Reading frozen", systemImage: "snowflake")
-                    .font(.callout.weight(.semibold))
-                    .foregroundStyle(.cyan)
-                    .padding(.top, 4)
+                Label("读数已冻结", systemImage: "snowflake")
+                    .font(.callout.weight(.semibold)).foregroundStyle(.cyan)
             }
         }
         .frame(maxWidth: .infinity)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(model.hasZero ? "Relative angle" : "Hinge angle")
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(model.hasZero ? "相对角" : "铰链角")
         .accessibilityValue(model.formatted(model.relativeDegrees, signed: model.hasZero))
     }
 
     private var demoControl: some View {
         VStack(spacing: 8) {
             HStack {
-                Text("Simulated hinge")
+                Text("演示铰链")
                 Spacer()
-                Text("\(demoAngle, specifier: "%.1f")°")
-                    .monospacedDigit()
+                Text("\(demoAngle, specifier: "%.1f")°").monospacedDigit()
             }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-
+            .font(.caption).foregroundStyle(.secondary)
             Slider(value: $demoAngle, in: 0...180, step: 0.1)
                 .tint(.orange)
-                .onChange(of: demoAngle) { _, value in
-                    model.receive(degrees: value)
-                }
+                .onChange(of: demoAngle) { _, value in model.receiveDemo(degrees: value) }
         }
         .padding(16)
         .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 18))
@@ -114,53 +85,72 @@ struct ContentView: View {
     private var controls: some View {
         VStack(spacing: 12) {
             Button(action: model.toggleFreeze) {
-                Label(model.isFrozen ? "Resume" : "Freeze", systemImage: model.isFrozen ? "play.fill" : "snowflake")
+                Label(model.isFrozen ? "继续" : "冻结", systemImage: model.isFrozen ? "play.fill" : "snowflake")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(PrimaryButtonStyle(active: model.isFrozen))
-
             HStack(spacing: 12) {
                 Button(action: model.setZero) {
-                    Label("Set Zero", systemImage: "scope")
-                        .frame(maxWidth: .infinity)
+                    Label("设为零", systemImage: "scope").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(SecondaryButtonStyle())
-
                 Button(action: model.clearZero) {
-                    Label("Clear", systemImage: "arrow.counterclockwise")
-                        .frame(maxWidth: .infinity)
+                    Label("清零", systemImage: "arrow.counterclockwise").frame(maxWidth: .infinity)
                 }
-                .buttonStyle(SecondaryButtonStyle())
-                .disabled(!model.hasZero)
+                .buttonStyle(SecondaryButtonStyle()).disabled(!model.hasZero)
             }
         }
     }
 }
 
+/// Isolates the iOS 27 SDK symbol. Pre-iOS-27 compilers omit this branch and
+/// build the same app in demo-only mode.
+private struct HingeListener: ViewModifier {
+    let model: HingeAngleModel
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+#if compiler(>=6.3)
+        if #available(iOS 27.0, *) {
+            content.onHingeChange { _, context in
+                guard let hinge = context.hinge else {
+                    model.reportNoHinge()
+                    return
+                }
+                let state: HingeAngleModel.SourceState
+                switch hinge.status {
+                case .closed: state = .closed
+                case .partiallyOpen: state = .partiallyOpen
+                case .fullyOpen: state = .fullyOpen
+                default: state = .hardware
+                }
+                // Coordinate conversion belongs only in the model function.
+                model.receiveHardware(rawDegrees: hinge.angle.degrees, state: state)
+            }
+        } else {
+            content
+        }
+#else
+        content
+#endif
+    }
+}
+
 private struct PrimaryButtonStyle: ButtonStyle {
     let active: Bool
-
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.headline)
-            .padding(.vertical, 17)
+        configuration.label.font(.headline).padding(.vertical, 17)
             .background(active ? Color.cyan : Color.blue, in: RoundedRectangle(cornerRadius: 16))
-            .foregroundStyle(.white)
-            .opacity(configuration.isPressed ? 0.75 : 1)
+            .foregroundStyle(.white).opacity(configuration.isPressed ? 0.75 : 1)
     }
 }
 
 private struct SecondaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.headline)
-            .padding(.vertical, 15)
+        configuration.label.font(.headline).padding(.vertical, 15)
             .background(.white.opacity(configuration.isPressed ? 0.16 : 0.1), in: RoundedRectangle(cornerRadius: 16))
             .foregroundStyle(.white)
     }
 }
 
-#Preview {
-    ContentView()
-}
-
+#Preview { ContentView() }
