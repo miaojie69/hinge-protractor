@@ -54,8 +54,8 @@ struct ReadingView: View {
                 .font(.caption.weight(.bold)).tracking(2).foregroundStyle(.secondary)
             Text("绝对角  \(model.formatted(model.shownDegrees))")
                 .font(.headline.monospacedDigit()).foregroundStyle(.secondary)
-            if model.isFrozen {
-                Label("读数已冻结", systemImage: "snowflake")
+            if model.isLocked {
+                Label(model.lockedAutomatically ? "已自动锁定" : "角度已锁定", systemImage: "lock.fill")
                     .font(.callout.weight(.semibold)).foregroundStyle(.cyan)
             }
         }
@@ -90,16 +90,22 @@ struct DemoSliderView: View {
 }
 
 struct ControlsView: View {
-    let model: HingeAngleModel
+    @Bindable var model: HingeAngleModel
 
     var body: some View {
         VStack(spacing: 12) {
-            Button(action: model.toggleFreeze) {
-                Label(model.isFrozen ? "继续" : "冻结",
-                      systemImage: model.isFrozen ? "play.fill" : "snowflake")
+            Button(action: model.toggleLock) {
+                Label(model.isLocked ? "解除锁定" : "锁定角度",
+                      systemImage: model.isLocked ? "lock.open.fill" : "lock.fill")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(PrimaryButtonStyle(active: model.isFrozen))
+            .buttonStyle(PrimaryButtonStyle(active: model.isLocked))
+            Toggle(isOn: $model.autoLockEnabled) {
+                Label("稳定后自动锁定", systemImage: "hand.raised.fill")
+                    .font(.subheadline).lineLimit(1)
+            }
+            .tint(.blue)
+            .padding(.horizontal, 4)
             // Side by side normally; stacked once large Dynamic Type sizes or a
             // narrow half-screen make the labels wrap into uneven columns.
             ViewThatFits(in: .horizontal) {
@@ -158,7 +164,7 @@ extension HingeAngleModel {
         let absolute = formatted(shownDegrees)
             .replacingOccurrences(of: unit.symbol, with: " " + unitWord)
         var parts = [main, "绝对角 \(absolute)"]
-        if isFrozen { parts.append("读数已冻结") }
+        if isLocked { parts.append(lockedAutomatically ? "已自动锁定" : "角度已锁定") }
         return parts.joined(separator: "，")
     }
 }

@@ -38,13 +38,28 @@ final class HingeAngleModel {
         }
     }
 
+    /// Auto-lock: how far the angle may wander and still count as held still,
+    /// how long it must be held, and how far it must move afterwards before a
+    /// new lock can trigger. The last one stops a manual unlock from snapping
+    /// straight back to locked.
+    static let stillnessTolerance = 0.3
+    static let stillnessDuration = 1.0
+    static let rearmMovement = 2.0
+
     private(set) var liveDegrees = 0.0
-    private(set) var frozenDegrees: Double?
+    private(set) var lockedDegrees: Double?
     private(set) var zeroDegrees: Double?
     private(set) var sourceState: SourceState
     /// Kept unconverted for future calibration work; never drives the UI.
     private(set) var lastRawHardwareDegrees: Double?
+    /// True when the current lock came from stillness rather than a tap.
+    private(set) var lockedAutomatically = false
+    var autoLockEnabled = true
     var unit: Unit = .degrees
+
+    private var stillnessAnchor: Double?
+    private var stillnessStart: TimeInterval?
+    private var awaitingMovement = false
 
     init() {
 #if DUO_SDK_AVAILABLE
@@ -54,24 +69,60 @@ final class HingeAngleModel {
 #endif
     }
 
-    var isFrozen: Bool { frozenDegrees != nil }
-    var shownDegrees: Double { frozenDegrees ?? liveDegrees }
+    var isLocked: Bool { lockedDegrees != nil }
+    var shownDegrees: Double { lockedDegrees ?? liveDegrees }
     var relativeDegrees: Double { shownDegrees - (zeroDegrees ?? 0) }
     var hasZero: Bool { zeroDegrees != nil }
     var hasHardwareHinge: Bool { sourceState.usesHardware }
     /// The slider may only drive the model while no hardware hinge is reporting.
     var acceptsDemoInput: Bool { !hasHardwareHinge }
 
-    func receiveDemo(degrees: Double) {
+    func receiveDemo(degrees: Double, at time: TimeInterval = now()) {
         guard acceptsDemoInput, degrees.isFinite else { return }
         liveDegrees = degrees.clamped(to: 0...180)
+        checkAutoLock(at: time)
     }
 
-    func receiveHardware(rawDegrees: Double, state: SourceState) {
+    func receiveHardware(rawDegrees: Double, state: SourceState, at time: TimeInterval = now()) {
         guard rawDegrees.isFinite else { return }
         sourceState = state
         lastRawHardwareDegrees = rawDegrees
         liveDegrees = normalizeHardwareDegrees(rawDegrees)
+        checkAutoLock(at: time)
+    }
+
+    static func now() -> TimeInterval { ProcessInfo.processInfo.systemUptime }
+
+    /// Locks the reading once the angle has been held still long enough, so a
+    /// measurement can be taken without watching the screen — the case where
+    /// the device is wedged into a corner and no display is visible.
+    ///
+    /// Must be called on a timer as well as on each new sample: an input that
+    /// only reports changes goes silent exactly when the angle is being held
+    /// still, which is the moment this needs to fire.
+    func checkAutoLock(at time: TimeInterval = now()) {
+        guard autoLockEnabled, !isLocked else { return }
+
+        if awaitingMovement {
+            guard let reference = stillnessAnchor,
+                  abs(liveDegrees - reference) > Self.rearmMovement else { return }
+            awaitingMovement = false
+            stillnessAnchor = nil
+        }
+
+        guard let anchor = stillnessAnchor, let start = stillnessStart,
+              abs(liveDegrees - anchor) <= Self.stillnessTolerance else {
+            stillnessAnchor = liveDegrees
+            stillnessStart = time
+            return
+        }
+
+        if time - start >= Self.stillnessDuration {
+            lockedDegrees = liveDegrees
+            lockedAutomatically = true
+            stillnessAnchor = nil
+            stillnessStart = nil
+        }
     }
 
     /// The single place raw hardware coordinates become closed ≈ 0°,
@@ -87,8 +138,22 @@ final class HingeAngleModel {
         lastRawHardwareDegrees = nil
     }
 
-    func toggleFreeze() { frozenDegrees = isFrozen ? nil : liveDegrees }
-    /// Uses the displayed value, so zeroing while frozen records the frozen
+    func toggleLock() {
+        if isLocked {
+            // Hold the released value as the reference the angle must move away
+            // from, so auto-lock cannot fire again before the device is moved.
+            stillnessAnchor = lockedDegrees
+            stillnessStart = nil
+            awaitingMovement = true
+            lockedDegrees = nil
+            lockedAutomatically = false
+        } else {
+            lockedDegrees = liveDegrees
+            lockedAutomatically = false
+        }
+    }
+
+    /// Uses the displayed value, so zeroing while locked records the locked
     /// reading rather than whatever input has arrived since.
     func setZero() { zeroDegrees = shownDegrees }
     func clearZero() { zeroDegrees = nil }

@@ -23,22 +23,22 @@ struct HingeAngleModelTests {
     @Test func freezeKeepsReadingWhileInputContinues() {
         let model = HingeAngleModel()
         model.receiveDemo(degrees: 45)
-        model.toggleFreeze()
+        model.toggleLock()
         model.receiveDemo(degrees: 100)
         #expect(model.shownDegrees == 45)
         #expect(model.liveDegrees == 100)
-        model.toggleFreeze()
+        model.toggleLock()
         #expect(model.shownDegrees == 100)
     }
 
     @Test func zeroingWhileFrozenUsesTheFrozenReading() {
         let model = HingeAngleModel()
         model.receiveDemo(degrees: 45)
-        model.toggleFreeze()
+        model.toggleLock()
         model.receiveDemo(degrees: 100)
         model.setZero()
         #expect(model.relativeDegrees == 0)
-        model.toggleFreeze()
+        model.toggleLock()
         #expect(model.relativeDegrees == 55)
     }
 
@@ -109,6 +109,69 @@ struct HingeAngleModelTests {
         let model = HingeAngleModel()
         #expect(model.normalizeHardwareDegrees(90) == 90)
         #expect(model.normalizeHardwareDegrees(.nan) == 0)
+    }
+
+    @Test func autoLockFiresOnlyAfterTheAngleIsHeldStill() {
+        let model = HingeAngleModel()
+        model.receiveDemo(degrees: 60, at: 0)
+        model.receiveDemo(degrees: 60.1, at: 0.5)
+        #expect(model.isLocked == false)
+        model.receiveDemo(degrees: 60.1, at: 1.2)
+        #expect(model.isLocked)
+        #expect(model.lockedAutomatically)
+        #expect(model.shownDegrees == 60.1)
+    }
+
+    @Test func movementRestartsTheStillnessTimer() {
+        let model = HingeAngleModel()
+        model.receiveDemo(degrees: 60, at: 0)
+        model.receiveDemo(degrees: 75, at: 0.9)
+        model.receiveDemo(degrees: 75, at: 1.5)
+        #expect(model.isLocked == false)
+        model.receiveDemo(degrees: 75, at: 2.0)
+        #expect(model.isLocked)
+        #expect(model.shownDegrees == 75)
+    }
+
+    @Test func unlockingDoesNotImmediatelyRelock() {
+        let model = HingeAngleModel()
+        model.receiveDemo(degrees: 60, at: 0)
+        model.receiveDemo(degrees: 60, at: 1.1)
+        #expect(model.isLocked)
+        model.toggleLock()
+        // Still against the corner, so the angle has not moved yet.
+        model.receiveDemo(degrees: 60, at: 2.5)
+        model.receiveDemo(degrees: 60, at: 4.0)
+        #expect(model.isLocked == false)
+        // Lift it away and hold somewhere new: locking is allowed again.
+        model.receiveDemo(degrees: 100, at: 5.0)
+        model.receiveDemo(degrees: 100, at: 6.2)
+        #expect(model.isLocked)
+        #expect(model.shownDegrees == 100)
+    }
+
+    @Test func autoLockCanBeTurnedOff() {
+        let model = HingeAngleModel()
+        model.autoLockEnabled = false
+        model.receiveDemo(degrees: 60, at: 0)
+        model.receiveDemo(degrees: 60, at: 5)
+        #expect(model.isLocked == false)
+    }
+
+    @Test func manualLockIsNotReportedAsAutomatic() {
+        let model = HingeAngleModel()
+        model.receiveDemo(degrees: 60, at: 0)
+        model.toggleLock()
+        #expect(model.isLocked)
+        #expect(model.lockedAutomatically == false)
+    }
+
+    @Test func autoLockAlsoAppliesToHardwareInput() {
+        let model = HingeAngleModel()
+        model.receiveHardware(rawDegrees: 120, state: .partiallyOpen, at: 0)
+        model.receiveHardware(rawDegrees: 120, state: .partiallyOpen, at: 1.1)
+        #expect(model.isLocked)
+        #expect(model.shownDegrees == 120)
     }
 
     @Test func radiansConversionMatchesDegrees() {

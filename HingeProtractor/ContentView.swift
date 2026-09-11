@@ -4,6 +4,8 @@ struct ContentView: View {
     @State private var model = HingeAngleModel()
     @State private var demoAngle = 90.0
 
+    private let stillnessTicker = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
+
     var body: some View {
         ZStack {
             AppBackground()
@@ -11,9 +13,17 @@ struct ContentView: View {
         }
         .preferredColorScheme(.dark)
         .onAppear { model.receiveDemo(degrees: demoAngle) }
+        .onReceive(stillnessTicker) { _ in model.checkAutoLock() }
         .onChange(of: model.acceptsDemoInput) { _, acceptsDemo in
             // Returning from hardware to demo: start the slider where the reading is.
             if acceptsDemo { demoAngle = model.liveDegrees }
+        }
+        .onChange(of: model.isLocked) { _, locked in
+            // The point of auto-lock is measuring without watching the screen,
+            // so the confirmation has to be felt rather than seen.
+            if locked && model.lockedAutomatically {
+                UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+            }
         }
         .modifier(HingeListener(model: model))
     }
