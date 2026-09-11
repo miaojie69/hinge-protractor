@@ -1,10 +1,28 @@
 import SwiftUI
 
 struct ContentView: View {
-    @State private var model = HingeAngleModel()
-    @State private var demoAngle = 90.0
+    // Owned by the app so the outer-display accessory can show the same model.
+    let model: HingeAngleModel
+    @Binding var demoAngle: Double
 
     private let stillnessTicker = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
+
+    /// Detents every 15°, so opening the device feels like turning a graduated
+    /// instrument rather than sweeping a continuous slider.
+    @State private var lastDetent: Double?
+    private let detentSpacing = 15.0
+    private let detentWidth = 0.8
+
+    private func reportDetent(crossing angle: Double) {
+        let nearest = (angle / detentSpacing).rounded() * detentSpacing
+        guard abs(angle - nearest) <= detentWidth else {
+            lastDetent = nil
+            return
+        }
+        guard lastDetent != nearest else { return }
+        lastDetent = nearest
+        UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.55)
+    }
 
     var body: some View {
         ZStack {
@@ -12,8 +30,22 @@ struct ContentView: View {
             MeasurementLayout(model: model, demoAngle: $demoAngle)
         }
         .preferredColorScheme(.dark)
-        .onAppear { model.receiveDemo(degrees: demoAngle) }
+        .onAppear {
+            model.autoLockEnabled = HingeAngleModel.Defaults.autoLock
+            model.hardwareAxisFlipped = HingeAngleModel.Defaults.axisFlipped
+            model.unit = HingeAngleModel.Unit(rawValue: HingeAngleModel.Defaults.unit) ?? .degrees
+            model.receiveDemo(degrees: demoAngle)
+        }
+        .onChange(of: model.autoLockEnabled) { _, new in HingeAngleModel.Defaults.autoLock = new }
+        .onChange(of: model.hardwareAxisFlipped) { _, new in HingeAngleModel.Defaults.axisFlipped = new }
+        .onChange(of: model.unit) { _, new in HingeAngleModel.Defaults.unit = new.rawValue }
         .onReceive(stillnessTicker) { _ in model.checkAutoLock() }
+        .onChange(of: model.isLocked, initial: true) { _, locked in
+            // While measuring, nobody is touching the screen — don't let it sleep
+            // mid-measurement. Allow it again once the reading is locked.
+            UIApplication.shared.isIdleTimerDisabled = !locked
+        }
+        .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
         .onChange(of: model.acceptsDemoInput) { _, acceptsDemo in
             // Returning from hardware to demo: start the slider where the reading is.
             if acceptsDemo { demoAngle = model.liveDegrees }
@@ -25,6 +57,7 @@ struct ContentView: View {
                 UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
             }
         }
+        .onChange(of: model.liveDegrees) { _, angle in reportDetent(crossing: angle) }
         .modifier(HingeListener(model: model))
     }
 }
@@ -83,4 +116,8 @@ private struct HingeListener: ViewModifier {
     }
 }
 
-#Preview { ContentView() }
+#Preview {
+    @Previewable @State var model = HingeAngleModel()
+    @Previewable @State var demoAngle = 90.0
+    ContentView(model: model, demoAngle: $demoAngle)
+}

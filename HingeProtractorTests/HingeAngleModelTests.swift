@@ -111,8 +111,21 @@ struct HingeAngleModelTests {
         #expect(model.normalizeHardwareDegrees(.nan) == 0)
     }
 
+    @Test func flippingTheAxisReversesHardwareReadings() {
+        let model = HingeAngleModel()
+        model.hardwareAxisFlipped = true
+        #expect(model.normalizeHardwareDegrees(0) == 180)
+        #expect(model.normalizeHardwareDegrees(180) == 0)
+        #expect(model.normalizeHardwareDegrees(60) == 120)
+        model.receiveHardware(rawDegrees: 30, state: .partiallyOpen)
+        #expect(model.liveDegrees == 150)
+        // The raw value stays untouched for calibration work.
+        #expect(model.lastRawHardwareDegrees == 30)
+    }
+
     @Test func autoLockFiresOnlyAfterTheAngleIsHeldStill() {
         let model = HingeAngleModel()
+        model.autoLockEnabled = true
         model.receiveDemo(degrees: 60, at: 0)
         model.receiveDemo(degrees: 60.1, at: 0.5)
         #expect(model.isLocked == false)
@@ -124,6 +137,7 @@ struct HingeAngleModelTests {
 
     @Test func movementRestartsTheStillnessTimer() {
         let model = HingeAngleModel()
+        model.autoLockEnabled = true
         model.receiveDemo(degrees: 60, at: 0)
         model.receiveDemo(degrees: 75, at: 0.9)
         model.receiveDemo(degrees: 75, at: 1.5)
@@ -135,6 +149,7 @@ struct HingeAngleModelTests {
 
     @Test func unlockingDoesNotImmediatelyRelock() {
         let model = HingeAngleModel()
+        model.autoLockEnabled = true
         model.receiveDemo(degrees: 60, at: 0)
         model.receiveDemo(degrees: 60, at: 1.1)
         #expect(model.isLocked)
@@ -150,9 +165,9 @@ struct HingeAngleModelTests {
         #expect(model.shownDegrees == 100)
     }
 
-    @Test func autoLockCanBeTurnedOff() {
+    @Test func autoLockIsOffByDefault() {
         let model = HingeAngleModel()
-        model.autoLockEnabled = false
+        #expect(model.autoLockEnabled == false)
         model.receiveDemo(degrees: 60, at: 0)
         model.receiveDemo(degrees: 60, at: 5)
         #expect(model.isLocked == false)
@@ -168,6 +183,7 @@ struct HingeAngleModelTests {
 
     @Test func autoLockAlsoAppliesToHardwareInput() {
         let model = HingeAngleModel()
+        model.autoLockEnabled = true
         model.receiveHardware(rawDegrees: 120, state: .partiallyOpen, at: 0)
         model.receiveHardware(rawDegrees: 120, state: .partiallyOpen, at: 1.1)
         #expect(model.isLocked)

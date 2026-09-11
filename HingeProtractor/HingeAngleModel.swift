@@ -54,7 +54,11 @@ final class HingeAngleModel {
     private(set) var lastRawHardwareDegrees: Double?
     /// True when the current lock came from stillness rather than a tap.
     private(set) var lockedAutomatically = false
-    var autoLockEnabled = true
+    /// Off by default: the reading following the hinge continuously is the
+    /// point of the app, and an automatic lock interrupts that.
+    var autoLockEnabled = false
+    /// Set on first run against real hardware if closed/open turn out reversed.
+    var hardwareAxisFlipped = false
     var unit: Unit = .degrees
 
     private var stillnessAnchor: Double?
@@ -67,6 +71,23 @@ final class HingeAngleModel {
 #else
         sourceState = .demo
 #endif
+    }
+
+    /// Persistence lives outside the model so tests exercise plain values
+    /// without writing to the user's real preferences.
+    enum Defaults {
+        static var autoLock: Bool {
+            get { UserDefaults.standard.bool(forKey: "autoLock") }
+            set { UserDefaults.standard.set(newValue, forKey: "autoLock") }
+        }
+        static var axisFlipped: Bool {
+            get { UserDefaults.standard.bool(forKey: "axisFlipped") }
+            set { UserDefaults.standard.set(newValue, forKey: "axisFlipped") }
+        }
+        static var unit: String {
+            get { UserDefaults.standard.string(forKey: "unit") ?? "degrees" }
+            set { UserDefaults.standard.set(newValue, forKey: "unit") }
+        }
     }
 
     var isLocked: Bool { lockedDegrees != nil }
@@ -126,11 +147,13 @@ final class HingeAngleModel {
     }
 
     /// The single place raw hardware coordinates become closed ≈ 0°,
-    /// fully open ≈ 180°. The real coordinate system is unverified; if fully
-    /// open turns out to be 0°, change only this function to `180 - rawDegrees`.
+    /// fully open ≈ 180°. Which way round the real hardware reports is
+    /// unverified, so `hardwareAxisFlipped` makes it correctable in the UI on
+    /// first run rather than requiring a rebuild.
     func normalizeHardwareDegrees(_ rawDegrees: Double) -> Double {
         guard rawDegrees.isFinite else { return 0 }
-        return rawDegrees.clamped(to: 0...180)
+        let clamped = rawDegrees.clamped(to: 0...180)
+        return hardwareAxisFlipped ? 180 - clamped : clamped
     }
 
     func reportNoHinge() {
