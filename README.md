@@ -1,65 +1,112 @@
 # Hinge Protractor
 
-Turn an iPhone Duo into a physical protractor: place the two halves of the
-device against the sides of an angle and read the hinge measurement live.
+The idea: place the two halves of a folding iPhone against the two sides of an
+angle and read the hinge opening directly. Today this repository ships the
+**demo mode** of that idea — the measurement UI, driven by a simulated angle
+slider instead of a sensor.
+
+## Verification status
+
+| Path | Status |
+| --- | --- |
+| Demo mode (slider input) | Built and run in iOS Simulator; model unit tests pass |
+| Hardware hinge path | **Not verified.** Compiled out by default — see below |
+| Physical measurement accuracy | **Not measured.** No hardware has been tested |
+
+Nothing in this repository has been run on a folding device. Do not read
+"demo verified" as "hardware works".
 
 ## Features
 
-- Live hinge angle with one-decimal precision
-- Relative measurement with Set Zero and Clear Zero
-- Freeze/unfreeze the displayed reading
-- Degrees and radians
-- Demo slider on devices without a hinge, including Simulator
+- Hinge angle displayed in degrees to one decimal place (a display format, not
+  an accuracy claim)
+- Large relative reading (displayed angle − zero point) with the absolute angle
+  always visible alongside
+- Set Zero / Clear Zero; zeroing while frozen uses the frozen reading
+- Freeze/resume — the display holds while input keeps arriving in the background
+- Degrees and radians, applied to both readings
+- Demo slider, two arms, and a sector that follows the absolute opening angle
+- VoiceOver labels on the readings; the decorative sector is hidden from
+  the accessibility tree
 - No analytics, account, network access, or stored measurements
+
+## The hardware path
+
+An earlier revision guarded the hinge listener with `#if compiler(>=6.3)` plus
+`if #available(iOS 27.0, *)`. That is not a valid test: a compiler version does
+not prove the selected SDK declares a symbol, and runtime availability cannot
+make an older SDK resolve an interface it never had.
+
+Every reference to the hinge API now sits behind one explicit build flag,
+`HINGE_API_AVAILABLE`, which is **off by default**. The iOS 26.1 SDK shipping
+with Xcode 26.1.1 declares no `onHingeChange`, `context.hinge`, `hinge.status`,
+or `hinge.angle` — verified by searching the SwiftUI module interfaces in that
+SDK. The symbols discussed in Apple's
+[iPhone Duo tech talk](https://developer.apple.com/videos/play/tech-talks/111464/)
+are therefore unavailable to build against here.
+
+To try the hardware path on an SDK that does declare it, add
+`HINGE_API_AVAILABLE` to `SWIFT_ACTIVE_COMPILATION_CONDITIONS` for the app
+target — and only after confirming the declaration in that SDK and getting a
+clean build. Turning the flag on does not by itself demonstrate hardware
+support.
+
+## Source states
+
+The app distinguishes three situations an earlier version conflated:
+
+- **演示模式** — the hardware path is compiled out; the slider is the only input.
+- **等待硬件信息…** — the hardware path is compiled in but no callback has
+  arrived. This is *not* evidence that the device lacks a hinge.
+- **本机无铰链** — the hardware path explicitly reported no hinge.
+
+While a hardware hinge is reporting, the slider is hidden and demo input is
+rejected, so it cannot overwrite sensor data.
 
 ## Requirements
 
-- Xcode 27 and iOS 27 for live hinge measurements
-- Xcode 16 / iOS 18 or newer for demo-only development
-- iPhone Duo for physical measurements
-
-The app still runs on other iOS devices. When the Hinge API reports no hinge,
-it displays a demo slider so the interface can be tested in Simulator.
+- Xcode 26.1.1 with the iOS 26.1 SDK and an iOS Simulator runtime — enough to
+  build and run demo mode
+- Hardware measurement requires an SDK that actually declares the hinge API,
+  plus a folding device. Neither was available for this work.
 
 ## Build
 
-1. Open `HingeProtractor.xcodeproj` in Xcode.
-2. Select the `HingeProtractor` scheme.
-3. Choose an iPhone Duo or Simulator and run.
+```bash
+xcodebuild -project HingeProtractor.xcodeproj -scheme HingeProtractor \
+  -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -derivedDataPath build/DerivedData CODE_SIGNING_ALLOWED=NO build
+```
 
-If signing fails on a physical device, select the app target, open **Signing &
-Capabilities**, and choose your development team.
-
-Older Xcode versions do not know the Hinge API. The live listener is isolated
-behind compiler and availability checks, so those toolchains build demo mode
-without trying to resolve `onHingeChange`.
+Or open `HingeProtractor.xcodeproj` in Xcode, pick the `HingeProtractor`
+scheme and a simulator, and Run. Signing is not needed for the simulator; for a
+physical device, select the app target → **Signing & Capabilities** → your team.
 
 ## Calibration and accuracy
 
-The physical hinge coordinate has not yet been checked on shipping hardware.
-The app currently assumes closed is approximately 0° and fully open is 180°;
-that conversion is centralized in `normalizeHardwareDegrees(_:)`.
+**Accuracy is unverified.** No measurement against a reference angle has been
+performed. Any real-world error depends on contact between the device halves
+and the measured surfaces, case thickness, mechanical play in the hinge, and
+where the hinge's own zero sits. The one-decimal display is a formatting
+choice and does not imply that level of precision.
 
-For a practical calibration check, remove or account for the case, place both
-halves against a known 90° corner, and use **Set Zero** only when taking a
-relative measurement from that reference. Case thickness, mechanical play,
-surface contact, and the definition of the hinge zero may introduce roughly
-1°–2° of error.
+Set Zero and calibration are different operations:
 
-## How it works
+- **Set Zero** records the current displayed angle as a reference and reports
+  change relative to it. Zeroing at a known 90° corner gives you deviation from
+  that corner — it does not correct the absolute reading to 90°.
+- **Calibration** would mean correcting the absolute angle against a reference.
+  This app does not do that.
 
-SwiftUI's `onHingeChange` modifier supplies continuous hinge updates. A `nil`
-hinge means the current device has no hinge. The measurement model keeps the
-raw angle separate from display state so freezing and zeroing remain
-predictable.
-
-Apple reference: [Leverage multiple displays and scenes on iPhone Duo](https://developer.apple.com/videos/play/tech-talks/111464/)
+The raw hardware value is retained separately (`lastRawHardwareDegrees`) so a
+future calibration step has something to work from. All coordinate conversion
+is confined to `normalizeHardwareDegrees(_:)`; if real hardware turns out to
+report fully open as 0°, only that function changes.
 
 ## Status
 
-Early prototype. Suitable only for casual DIY, craft, and educational use.
-It is not a calibrated measuring instrument and must not be used for
-safety-critical or precision engineering work.
+Early prototype and an open-source demo. Not a calibrated measuring
+instrument; not for safety-critical or precision engineering work.
 
 ## License
 

@@ -13,7 +13,7 @@ struct ContentView: View {
                     header
                     reading
                     HingeArcView(degrees: model.shownDegrees).frame(height: 190)
-                    if !model.hasHardwareHinge { demoControl }
+                    if model.acceptsDemoInput { demoControl }
                     controls
                 }
                 .padding(24)
@@ -23,6 +23,10 @@ struct ContentView: View {
         }
         .preferredColorScheme(.dark)
         .onAppear { model.receiveDemo(degrees: demoAngle) }
+        .onChange(of: model.acceptsDemoInput) { _, acceptsDemo in
+            // Returning from hardware to demo: start the slider where the reading is.
+            if acceptsDemo { demoAngle = model.liveDegrees }
+        }
         .modifier(HingeListener(model: model))
     }
 
@@ -63,7 +67,18 @@ struct ContentView: View {
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(model.hasZero ? "相对角" : "铰链角")
-        .accessibilityValue(model.formatted(model.relativeDegrees, signed: model.hasZero))
+        .accessibilityValue(Text(accessibleReading))
+    }
+
+    private var accessibleReading: String {
+        let unitWord = model.unit == .degrees ? "度" : "弧度"
+        let main = model.formatted(model.relativeDegrees, signed: model.hasZero)
+            .replacingOccurrences(of: model.unit.symbol, with: " " + unitWord)
+        let absolute = model.formatted(model.shownDegrees)
+            .replacingOccurrences(of: model.unit.symbol, with: " " + unitWord)
+        var parts = [main, "绝对角 \(absolute)"]
+        if model.isFrozen { parts.append("读数已冻结") }
+        return parts.joined(separator: "，")
     }
 
     private var demoControl: some View {
@@ -77,6 +92,8 @@ struct ContentView: View {
             Slider(value: $demoAngle, in: 0...180, step: 0.1)
                 .tint(.orange)
                 .onChange(of: demoAngle) { _, value in model.receiveDemo(degrees: value) }
+                .accessibilityLabel("演示铰链角度")
+                .accessibilityValue(Text(String(format: "%.1f 度", demoAngle)))
         }
         .padding(16)
         .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 18))
@@ -103,32 +120,32 @@ struct ContentView: View {
     }
 }
 
-/// Isolates the iOS 27 SDK symbol. Pre-iOS-27 compilers omit this branch and
-/// build the same app in demo-only mode.
+/// Isolates every reference to the unreleased hinge API behind one build flag.
+/// It is OFF by default: no SDK shipping today (checked through iOS 26.1)
+/// declares `onHingeChange`, and a compiler-version check cannot prove the
+/// selected SDK contains a symbol. Enable HINGE_API_AVAILABLE only after
+/// confirming the declaration in an SDK you actually have, then verify the
+/// build — never as a way to claim hardware support.
 private struct HingeListener: ViewModifier {
     let model: HingeAngleModel
 
     @ViewBuilder
     func body(content: Content) -> some View {
-#if compiler(>=6.3)
-        if #available(iOS 27.0, *) {
-            content.onHingeChange { _, context in
-                guard let hinge = context.hinge else {
-                    model.reportNoHinge()
-                    return
-                }
-                let state: HingeAngleModel.SourceState
-                switch hinge.status {
-                case .closed: state = .closed
-                case .partiallyOpen: state = .partiallyOpen
-                case .fullyOpen: state = .fullyOpen
-                default: state = .hardware
-                }
-                // Coordinate conversion belongs only in the model function.
-                model.receiveHardware(rawDegrees: hinge.angle.degrees, state: state)
+#if HINGE_API_AVAILABLE
+        content.onHingeChange { _, context in
+            guard let hinge = context.hinge else {
+                model.reportNoHinge()
+                return
             }
-        } else {
-            content
+            let state: HingeAngleModel.SourceState
+            switch hinge.status {
+            case .closed: state = .closed
+            case .partiallyOpen: state = .partiallyOpen
+            case .fullyOpen: state = .fullyOpen
+            default: state = .hardwareUnknown
+            }
+            // Coordinate conversion belongs only in the model function.
+            model.receiveHardware(rawDegrees: hinge.angle.degrees, state: state)
         }
 #else
         content
